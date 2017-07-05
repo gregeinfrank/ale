@@ -10,7 +10,7 @@ endif
 " returns: a list [lnum, col] with the location of the error or []
 function! s:FindErrorInExpansion(span, file_name) abort
     if a:span.file_name ==# a:file_name
-        return [a:span.line_start, a:span.byte_start]
+        return [a:span.line_start, a:span.line_end, a:span.byte_start, a:span.byte_end]
     endif
 
     if !empty(a:span.expansion)
@@ -46,16 +46,16 @@ function! ale#handlers#rust#HandleRustErrorsForFile(buffer, full_filename, lines
         endif
 
         for l:span in l:error.spans
-            let l:span_filename = fnamemodify(l:span.file_name, ':t')
-
             if (
             \   l:span.is_primary
-            \   && (l:span_filename ==# l:filename || l:span_filename ==# '<anon>')
+            \   && (a:full_filename =~ (l:span.file_name . '$') || l:span.file_name ==# '<anon>')
             \)
                 call add(l:output, {
                 \   'lnum': l:span.line_start,
+                \   'end_lnum': l:span.line_end,
                 \   'col': l:span.byte_start,
-                \   'text': l:error.message,
+                \   'end_col': l:span.byte_end,
+                \   'text': empty(l:span.label) ? l:error.message : printf('%s: %s', l:error.message, l:span.label),
                 \   'type': toupper(l:error.level[0]),
                 \})
             else
@@ -66,7 +66,9 @@ function! ale#handlers#rust#HandleRustErrorsForFile(buffer, full_filename, lines
                 if !empty(l:root_cause)
                     call add(l:output, {
                     \   'lnum': l:root_cause[0],
-                    \   'col': l:root_cause[1],
+                    \   'end_lnum': l:root_cause[1],
+                    \   'col': l:root_cause[2],
+                    \   'end_col': l:root_cause[3],
                     \   'text': l:error.message,
                     \   'type': toupper(l:error.level[0]),
                     \})

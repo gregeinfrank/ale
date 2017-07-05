@@ -4,7 +4,7 @@
 
 let s:linters = {}
 
-" Default filetype aliaes.
+" Default filetype aliases.
 " The user defined aliases will be merged with this Dictionary.
 let s:default_ale_linter_aliases = {
 \   'Dockerfile': 'dockerfile',
@@ -23,7 +23,7 @@ let s:default_ale_linter_aliases = {
 " rpmlint is disabled by default because it can result in code execution.
 let s:default_ale_linters = {
 \   'csh': ['shell'],
-\   'go': ['go build', 'gofmt', 'golint', 'gosimple', 'go vet', 'staticcheck'],
+\   'go': ['gofmt', 'golint', 'go vet'],
 \   'help': [],
 \   'rust': ['cargo'],
 \   'spec': [],
@@ -51,18 +51,35 @@ function! ale#linter#PreProcess(linter) abort
 
     let l:obj = {
     \   'name': get(a:linter, 'name'),
-    \   'callback': get(a:linter, 'callback'),
+    \   'lsp': get(a:linter, 'lsp', ''),
     \}
 
     if type(l:obj.name) != type('')
         throw '`name` must be defined to name the linter'
     endif
 
-    if !s:IsCallback(l:obj.callback)
-        throw '`callback` must be defined with a callback to accept output'
+    let l:needs_address = l:obj.lsp ==# 'socket'
+    let l:needs_executable = l:obj.lsp !=# 'socket'
+    let l:needs_command = l:obj.lsp !=# 'socket'
+
+    if empty(l:obj.lsp)
+        let l:obj.callback = get(a:linter, 'callback')
+
+        if !s:IsCallback(l:obj.callback)
+            throw '`callback` must be defined with a callback to accept output'
+        endif
     endif
 
-    if has_key(a:linter, 'executable_callback')
+    if index(['', 'socket', 'stdio', 'tsserver'], l:obj.lsp) < 0
+        throw '`lsp` must be either `''lsp''` or `''tsserver''` if defined'
+    endif
+
+    if !l:needs_executable
+        if has_key(a:linter, 'executable')
+        \|| has_key(a:linter, 'executable_callback')
+            throw '`executable` and `executable_callback` cannot be used when lsp == ''socket'''
+        endif
+    elseif has_key(a:linter, 'executable_callback')
         let l:obj.executable_callback = a:linter.executable_callback
 
         if !s:IsCallback(l:obj.executable_callback)
@@ -78,7 +95,13 @@ function! ale#linter#PreProcess(linter) abort
         throw 'Either `executable` or `executable_callback` must be defined'
     endif
 
-    if has_key(a:linter, 'command_chain')
+    if !l:needs_command
+        if has_key(a:linter, 'command')
+        \|| has_key(a:linter, 'command_callback')
+        \|| has_key(a:linter, 'command_chain')
+            throw '`command` and `command_callback` and `command_chain` cannot be used when lsp == ''socket'''
+        endif
+    elseif has_key(a:linter, 'command_chain')
         let l:obj.command_chain = a:linter.command_chain
 
         if type(l:obj.command_chain) != type([])
@@ -138,6 +161,20 @@ function! ale#linter#PreProcess(linter) abort
         \   . 'should be set'
     endif
 
+    if !l:needs_address
+        if has_key(a:linter, 'address_callback')
+            throw '`address_callback` cannot be used when lsp != ''socket'''
+        endif
+    elseif has_key(a:linter, 'address_callback')
+        let l:obj.address_callback = a:linter.address_callback
+
+        if !s:IsCallback(l:obj.address_callback)
+            throw '`address_callback` must be a callback if defined'
+        endif
+    else
+        throw '`address_callback` must be defined for getting the LSP address'
+    endif
+
     let l:obj.output_stream = get(a:linter, 'output_stream', 'stdout')
 
     if type(l:obj.output_stream) != type('')
@@ -162,6 +199,13 @@ function! ale#linter#PreProcess(linter) abort
 
     if l:obj.lint_file && l:obj.read_buffer
         throw 'Only one of `lint_file` or `read_buffer` can be `1`'
+    endif
+
+    let l:obj.aliases = get(a:linter, 'aliases', [])
+
+    if type(l:obj.aliases) != type([])
+    \|| len(filter(copy(l:obj.aliases), 'type(v:val) != type('''')')) > 0
+        throw '`aliases` must be a List of String values'
     endif
 
     return l:obj
@@ -242,7 +286,7 @@ function! s:GetLinterNames(original_filetype) abort
 endfunction
 
 function! ale#linter#Get(original_filetypes) abort
-    let l:combined_linters = []
+    let l:possibly_duplicated_linters = []
 
     " Handle dot-seperated filetypes.
     for l:original_filetype in split(a:original_filetypes, '\.')
@@ -256,14 +300,48 @@ function! ale#linter#Get(original_filetypes) abort
         elseif type(l:linter_names) == type([])
             " Select only the linters we or the user has specified.
             for l:linter in l:all_linters
-                if index(l:linter_names, l:linter.name) >= 0
-                    call add(l:filetype_linters, l:linter)
-                endif
+                let l:name_list = [l:linter.name] + l:linter.aliases
+
+                for l:name in l:name_list
+                    if index(l:linter_names, l:name) >= 0
+                        call add(l:filetype_linters, l:linter)
+                        break
+                    endif
+                endfor
             endfor
         endif
 
-        call extend(l:combined_linters, l:filetype_linters)
+        call extend(l:possibly_duplicated_linters, l:filetype_linters)
     endfor
 
-    return l:combined_linters
+    let l:name_list = []
+    let l:combined_linters = []
+
+    " Make sure we override linters so we don't get two with the same name,
+    " like 'eslint' for both 'javascript' and 'typescript'
+    "
+    " Note that the reverse calls here modify the List variables.
+    for l:linter in reverse(l:possibly_duplicated_linters)
+        if index(l:name_list, l:linter.name) < 0
+            call add(l:name_list, l:linter.name)
+            call add(l:combined_linters, l:linter)
+        endif
+    endfor
+
+    return reverse(l:combined_linters)
+endfunction
+
+" Given a buffer and linter, get the executable String for the linter.
+function! ale#linter#GetExecutable(buffer, linter) abort
+    return has_key(a:linter, 'executable_callback')
+    \   ? ale#util#GetFunction(a:linter.executable_callback)(a:buffer)
+    \   : a:linter.executable
+endfunction
+
+" Given a buffer and linter, get the command String for the linter.
+" The command_chain key is not supported.
+function! ale#linter#GetCommand(buffer, linter) abort
+    return has_key(a:linter, 'command_callback')
+    \   ? ale#util#GetFunction(a:linter.command_callback)(a:buffer)
+    \   : a:linter.command
 endfunction

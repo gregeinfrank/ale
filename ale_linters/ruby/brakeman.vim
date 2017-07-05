@@ -5,6 +5,10 @@ let g:ale_ruby_brakeman_options =
 \   get(g:, 'ale_ruby_brakeman_options', '')
 
 function! ale_linters#ruby#brakeman#Handle(buffer, lines) abort
+    if len(a:lines) == 0
+        return []
+    endif
+
     let l:result = json_decode(join(a:lines, ''))
 
     let l:output = []
@@ -40,7 +44,7 @@ function! ale_linters#ruby#brakeman#GetCommand(buffer) abort
 
     return 'brakeman -f json -q '
     \    . ale#Var(a:buffer, 'ruby_brakeman_options')
-    \    . ' -p ' . l:rails_root
+    \    . ' -p ' . ale#Escape(l:rails_root)
 endfunction
 
 function! s:FindRailsRoot(buffer) abort

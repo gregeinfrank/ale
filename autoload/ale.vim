@@ -1,10 +1,17 @@
-" Author: w0rp <devw0rp@gmail.com>
+" Author: w0rp <devw0rp@gmail.com>, David Alexander <opensource@thelonelyghost.com>
 " Description: Primary code path for the plugin
 "   Manages execution of linters when requested by autocommands
 
 let s:lint_timer = -1
 let s:queued_buffer_number = -1
 let s:should_lint_file_for_buffer = {}
+
+" Return 1 if a file is too large for ALE to handle.
+function! ale#FileTooLarge() abort
+    let l:max = ale#Var(bufnr(''), 'maximum_file_size')
+
+    return l:max > 0 ? (line2byte(line('$') + 1) > l:max) : 0
+endfunction
 
 " A function for checking various conditions whereby ALE just shouldn't
 " attempt to do anything, say if particular buffer types are open in Vim.
@@ -14,6 +21,8 @@ function! ale#ShouldDoNothing() abort
     return index(g:ale_filetype_blacklist, &filetype) >= 0
     \   || (exists('*getcmdwintype') && !empty(getcmdwintype()))
     \   || ale#util#InSandbox()
+    \   || !ale#Var(bufnr(''), 'enabled')
+    \   || ale#FileTooLarge()
 endfunction
 
 " (delay, [linting_flag])
@@ -76,7 +85,8 @@ function! ale#Lint(...) abort
     " Check if we previously requested checking the file.
     if has_key(s:should_lint_file_for_buffer, l:buffer)
         unlet s:should_lint_file_for_buffer[l:buffer]
-        let l:should_lint_file = 1
+        " Lint files if they exist.
+        let l:should_lint_file = filereadable(expand('#' . l:buffer . ':p'))
     endif
 
     " Initialise the buffer information if needed.
@@ -94,6 +104,8 @@ function! ale#Lint(...) abort
         " the file, and the items will be mixed together with any new items.
         call filter(l:linters, '!v:val.lint_file')
     endif
+
+    call ale#engine#StopCurrentJobs(l:buffer, l:should_lint_file)
 
     for l:linter in l:linters
         call ale#engine#Invoke(l:buffer, l:linter)
@@ -119,7 +131,46 @@ endfunction
 "
 " Every variable name will be prefixed with 'ale_'.
 function! ale#Var(buffer, variable_name) abort
+    let l:nr = str2nr(a:buffer)
     let l:full_name = 'ale_' . a:variable_name
 
-    return getbufvar(str2nr(a:buffer), l:full_name, g:[l:full_name])
+    if bufexists(l:nr)
+        let l:vars = getbufvar(l:nr, '')
+    elseif has_key(g:, 'ale_fix_buffer_data')
+        let l:vars = get(g:ale_fix_buffer_data, l:nr, {'vars': {}}).vars
+    else
+        let l:vars = {}
+    endif
+
+    return get(l:vars, l:full_name, g:[l:full_name])
+endfunction
+
+" Initialize a variable with a default value, if it isn't already set.
+"
+" Every variable name will be prefixed with 'ale_'.
+function! ale#Set(variable_name, default) abort
+    let l:full_name = 'ale_' . a:variable_name
+    let l:value = get(g:, l:full_name, a:default)
+    let g:[l:full_name] = l:value
+
+    return l:value
+endfunction
+
+" Escape a string suitably for each platform.
+" shellescape does not work on Windows.
+function! ale#Escape(str) abort
+    if fnamemodify(&shell, ':t') ==? 'cmd.exe'
+        " If the string contains spaces, it will be surrounded by quotes.
+        " Otherwise, special characters will be escaped with carets (^).
+        return substitute(
+        \   a:str =~# ' '
+        \       ?  '"' .  substitute(a:str, '"', '""', 'g') . '"'
+        \       : substitute(a:str, '\v([&|<>^])', '^\1', 'g'),
+        \   '%',
+        \   '%%',
+        \   'g',
+        \)
+    endif
+
+    return shellescape (a:str)
 endfunction

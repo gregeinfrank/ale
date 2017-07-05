@@ -11,47 +11,33 @@ Execute(HandleCSSLintFormat should handle CSS errors):
   \    'lnum': 2,
   \    'col': 5,
   \    'type': 'W',
-  \    'text': "(known-properties) Expected ... but found 'wat'.",
+  \    'text': '(known-properties) Expected ... but found ''wat''.',
   \   },
   \ ],
   \ ale#handlers#css#HandleCSSLintFormat(42, [
   \   'something.css: line 2, col 1, Error - Expected RBRACE at line 2, col 1. (errors)',
-  \   "something.css: line 2, col 5, Warning - Expected ... but found 'wat'. (known-properties)",
+  \   'something.css: line 2, col 5, Warning - Expected ... but found ''wat''. (known-properties)',
   \ ])
 
-Execute (HandlePEP8Format should handle the correct lines of output):
+Execute(HandleCSSLintFormat should handle CSS errors without groups):
   AssertEqual
   \ [
   \   {
-  \     'lnum': 6,
-  \     'col': 6,
-  \     'type': 'E',
-  \     'text': 'E111: indentation is not a multiple of four',
+  \    'lnum': 7,
+  \    'col': 3,
+  \    'type': 'W',
+  \    'text': 'Unknown property ''fill''.',
   \   },
   \   {
-  \    'lnum': 35,
-  \    'col': 0,
-  \    'type': 'E',
-  \    'text': "EANSIBLE0002: Trailing whitespace",
+  \    'lnum': 8,
+  \    'col': 3,
+  \    'type': 'W',
+  \    'text': 'Unknown property ''fill-opacity''.',
   \   },
   \ ],
-  \ ale#handlers#python#HandlePEP8Format(42, [
-  \   "stdin:6:6: E111 indentation is not a multiple of four",
-  \   "test.yml:35: [EANSIBLE0002] Trailing whitespace",
-  \ ])
-
-Execute (HandlePEP8Format should handle names with spaces):
-  AssertEqual
-  \ [
-  \   {
-  \     'lnum': 6,
-  \     'col': 6,
-  \     'type': 'E',
-  \     'text': 'E111: indentation is not a multiple of four',
-  \   },
-  \ ],
-  \ ale#handlers#python#HandlePEP8Format(42, [
-  \   'C:\something\with spaces.py:6:6: E111 indentation is not a multiple of four',
+  \ ale#handlers#css#HandleCSSLintFormat(42, [
+  \   'something.css: line 7, col 3, Warning - Unknown property ''fill''.',
+  \   'something.css: line 8, col 3, Warning - Unknown property ''fill-opacity''.',
   \ ])
 
 Execute (HandleGCCFormat should handle the correct lines of output):
@@ -190,25 +176,4 @@ Execute (Unix format functions should handle Windows paths):
   \ ale#handlers#unix#HandleAsError(42, [
   \   'C:\Users\w0rp\AppData\Local\Temp\Xyz123.go:27: foo',
   \   'C:\Users\w0rp\AppData\Local\Temp\Xyz123.go:53:10: foo',
-  \ ])
-
-Execute (HandleCppCheckFormat should handle some example lines of output):
-  AssertEqual
-  \ [
-  \   {
-  \     'lnum': 5,
-  \     'col': 0,
-  \     'type': 'W',
-  \     'text': 'Variable a is assigned a value that is never used. (style)',
-  \   },
-  \   {
-  \     'lnum': 12,
-  \     'col': 0,
-  \     'type': 'E',
-  \     'text': 'Array a[10] accessed at index 10, which is out of bounds. (error)',
-  \   },
-  \ ],
-  \ ale#handlers#cppcheck#HandleCppCheckFormat(42, [
-  \   '[/tmp/test.c:5]: (style) Variable a is assigned a value that is never used.',
-  \   '[/tmp/test.c:12]: (error) Array a[10] accessed at index 10, which is out of bounds.'
   \ ])
